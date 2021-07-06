@@ -20,6 +20,7 @@ MuseScore {
   property var dbPath: pluginPath + "db.json";
   property var db;
   property var isTagEditOpen: false;
+  property var uidOpenedTagEdit;
   property var filteredAllowlist;
 
   onRun: {
@@ -39,7 +40,7 @@ MuseScore {
   /** Populates score list from database. */
   function populateScoreList() {
     // Remove filtered/deleted scores
-    for (var i = scoreListModel.count - 1; i > 0; i--) {
+    for (var i = scoreListModel.count - 1; i >= 0; i--) {
       var exists = false;
       for (var j = 0; j < db.scores.length; j++) {
         if (scoreListModel.get(i).file === db.scores[j].file && isAllowed(db.scores[j].uid)) {
@@ -116,10 +117,8 @@ MuseScore {
       if (db[prefix] !== undefined) {
         for (var i = 0; i < db[prefix].length; i++) {
           if (db[prefix][i].tag.toLowerCase() === tag) {
-            console.log("found scores " + db[prefix][i].scores);
-            for (var j = 0; j < db[prefix][i].scores.length; j++) {
-              filteredAllowlist.push(db.scores[db[prefix][i].scores[j]].uid);
-            }
+            console.log("found score ids: " + db[prefix][i].scores);
+            filteredAllowlist.push.apply(filteredAllowlist, db[prefix][i].scores);
             break;
           }
         }
@@ -143,18 +142,24 @@ MuseScore {
     for (var i = 0; i < db.scores.length; i++) {
       if (db.scores[i].file === file) {
         var id = db.scores[i].uid;
+        // remove from scores
         db.scores.splice(i, 1);
         for (var prefix in db) {
           if (db[prefix]["scores"] !== undefined) {
             var j = 0;
             while (j < db[prefix]["scores"].length) {
               if (db[prefix]["scores"][j] === id) {
+                // remove from any prefix indices
                 db[prefix]["scores"].splice(j, 1);
               } else {
                 j++;
               }
             }
           }
+        }
+        // close tag editor if it was active on the removed score
+        if (id === uidOpenedTagEdit) {
+          toggleTagEditSection(id);
         }
         break;
       }
@@ -178,8 +183,9 @@ MuseScore {
 
   /** Toggles the panel for editing tags. */
   function toggleTagEditSection(uid) {
-    isTagEditOpen = !isTagEditOpen;
-    if (isTagEditOpen) {
+    if (uid !== undefined && (!isTagEditOpen || uid !== uidOpenedTagEdit)) {
+      isTagEditOpen = true;
+      uidOpenedTagEdit = uid;
       tagEditView.height = 200;
       tagEditView.visible = true;
       tagListModel.clear();
@@ -189,6 +195,8 @@ MuseScore {
         tagListModel.append({"uid": db.scores[index].uid, "prefix": prefix, "tag": db.scores[index][prefix]});
       }
     } else {
+      isTagEditOpen = false;
+      uidOpenedTagEdit = undefined;
       tagEditView.height = 0;
       tagEditView.visible = false;
     }
@@ -227,7 +235,7 @@ MuseScore {
     }
   }
 
-  /** An abstract score. */
+  /** A score. */
   Component {
     id: scoreComponent
 
@@ -260,7 +268,6 @@ MuseScore {
           onClicked: {
             testFile.source = file;
             if (testFile.exists()) {
-              console.log(uid);
               toggleTagEditSection(uid);
               //readScore(file);
               if (libMan.pluginType === "dock") {
@@ -378,6 +385,7 @@ MuseScore {
     }
   }
 
+  /** An editable tag. */
   Component {
     id: tagComponent
 
@@ -389,11 +397,12 @@ MuseScore {
         id: tagPair
         width: parent.width
         height: childrenRect.height
+        color: "transparent"
 
         TextInput {
           id: prefixText
           anchors.left: parent.left
-          anchors.leftMargin: 10
+          anchors.leftMargin: 8
           selectByMouse: true
           text: prefix
 
@@ -500,13 +509,26 @@ MuseScore {
         }
       }
 
-      ListView {
-        id: tagListView
+      ScrollView {
+        id: tagListScrollView
         anchors.top: tagEditTitle.bottom
         anchors.bottom: parent.bottom
+        anchors.leftMargin: 20
+        anchors.rightMargin: 20
         width: parent.width
-        model: tagListModel
-        delegate: tagComponent
+        clip: true
+
+        ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+        ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+        ListView {
+          id: tagListView
+          width: parent.width
+          height: 60
+
+          model: tagListModel
+          delegate: tagComponent
+        }
       }
     }
 
