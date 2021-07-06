@@ -37,7 +37,9 @@ MuseScore {
     populateScoreList();
   }
 
-  /** Populates score list from database. */
+  /**
+   * Populates score list from database
+   */
   function populateScoreList() {
     // Remove filtered/deleted scores
     for (var i = scoreListModel.count - 1; i >= 0; i--) {
@@ -80,7 +82,11 @@ MuseScore {
     libraryCount.text = db.scores.length + " Scores" + (scoreListModel.count < db.scores.length ? ". Showing " + scoreListModel.count : "");
   }
 
-  /** Searches specified folder for scores not yet in the database. */
+  /**
+   * Searches specified folder for scores not yet in the database
+   *
+   * folder - the folder containing scores to add
+   */
   function addFilesToDatabase(folder) {
     for (var i = 0; i < folder.count; i++) {
       if (!folder.isFolder(i)) {
@@ -100,12 +106,29 @@ MuseScore {
     populateScoreList();
   }
 
-  /** Saves database to file. */
+  /**
+   * Saves database to file
+   */
   function saveData() {
     dbFile.write(JSON.stringify(db));
   }
 
-  /** Searches the database for the given term. */
+  /**
+   * Performs database clean-up
+   */
+  function tidyDb() {
+    // TODO check for and delete missing files
+    // TODO reset nextId and reassign uids if they grow too large
+    // TODO check for and remove empty indices
+  }
+
+  /**
+   * Searches the database for the given term
+   *
+   * searchTerm - the string to search for
+   *              can be either a search by name (e.g. "la bam" will match "La Bamba")
+   *              or a prefix:tag format (e.g. "key:c minor" will match "Symphony No. 5 [Beethoven]")
+   */
   function searchDB(searchTerm) {
     // prefix:tag format
     if (searchTerm.includes(":")) {
@@ -137,7 +160,11 @@ MuseScore {
     populateScoreList();
   }
 
-  /** Removes the specified file from the database. */
+  /**
+   * Removes the specified file from the database
+   *
+   * file - the file to remove from the database
+   */
   function removeFromDB(file) {
     for (var i = 0; i < db.scores.length; i++) {
       if (db.scores[i].file === file) {
@@ -168,20 +195,32 @@ MuseScore {
     populateScoreList();
   }
 
-  /** Checks the filter list to see if this score is allowed to be displayed. */
+  /**
+   * Checks the filter list to see if this score is allowed to be displayed
+   *
+   * uid - the id of the score to check
+   */
   function isAllowed(uid) {
     return filteredAllowlist.length === 0 || filteredAllowlist.indexOf(uid) >= 0;
   }
 
-  /** Finds the index of a score by its uid. */
-  function uidToIndex(uid) {
+  /**
+   * Finds the position of a score in the database by its uid
+   *
+   * uid - the id of the score to get the position of
+   */
+  function uidToPos(uid) {
     for (var i = 0; i < db.scores.length; i++) {
       if (db.scores[i].uid === uid) return i;
     }
     return -1;
   }
 
-  /** Toggles the panel for editing tags. */
+  /**
+   * Toggles the panel for editing tags
+   *
+   * uid - the id of the score that triggered the event
+   */
   function toggleTagEditSection(uid) {
     if (uid !== undefined && (!isTagEditOpen || uid !== uidOpenedTagEdit)) {
       isTagEditOpen = true;
@@ -189,10 +228,10 @@ MuseScore {
       tagEditView.height = 200;
       tagEditView.visible = true;
       tagListModel.clear();
-      var index = uidToIndex(uid);
-      for (var prefix in db.scores[index]) {
+      var pos = uidToPos(uid);
+      for (var prefix in db.scores[pos]) {
         if (prefix === "file" || prefix === "uid") continue;
-        tagListModel.append({"uid": db.scores[index].uid, "prefix": prefix, "tag": db.scores[index][prefix]});
+        tagListModel.append({"uid": db.scores[pos].uid, "prefix": prefix, "tag": db.scores[pos][prefix]});
       }
     } else {
       isTagEditOpen = false;
@@ -202,29 +241,102 @@ MuseScore {
     }
   }
 
-  /** Test file used to clean up database. */
+  /**
+   * Updates a score's tag for a given prefix
+   *
+   * uid - the id of the score to update
+   * prefix - the prefix of the tag being edited
+   * oldTag - the previous tag value
+   * newTag - the new tag value
+   */
+  function updateTagByPrefix(uid, prefix, oldTag, newTag) {
+    var pos = uidToPos(uid);
+    db.scores[pos][prefix] = newTag;
+    if (prefix !== "uid" && prefix !== "file" && prefix !== "title") {
+      removeFromIndex(uid, prefix, oldTag);
+      addToIndex(uid, prefix, newTag);
+    }
+    // TODO: update scoreListModel when a score's visible tags change
+    saveData();
+  }
+
+  /**
+   * Adds a score to an index on a prefix
+   *
+   * uid - the id of the score to be indexed
+   * prefix - the prefix being indexed
+   * tag - the tag that the score will be indexed under
+   */
+  function addToIndex(uid, prefix, tag) {
+    if (db[prefix]) {
+      for (var i = 0; i < db[prefix].length; i++) {
+        if (db[prefix][i].tag === tag) {
+          db[prefix][i].scores.push(uid);
+          return;
+        }
+      }
+      // prefix did not contain tag
+      db[prefix].push({"tag": tag, "scores": [uid]});
+    } else {
+      // prefix not indexed
+      db[prefix] = [{"tag": tag, "scores": [uid]}];
+    }
+  }
+
+  /**
+   * Removes a score from an index on a prefix
+   *
+   * uid - the id of the score to un-index
+   * prefix - the prefix being indexed
+   * tag - the tag that the score was indexed under
+   */
+  function removeFromIndex(uid, prefix, tag) {
+    for (var i = 0; i < db[prefix].length; i++) {
+      if (db[prefix][i].tag === tag && db[prefix][i].scores.indexOf(uid) !== -1) {
+        db[prefix][i].scores.splice(db[prefix][i].scores.indexOf(uid), 1);
+        // TODO
+        // - delete tag in index if it contains no scores,
+        // - delete index if it contains no tags
+        break;
+      }
+    }
+  }
+
+  /**
+   * Test file used to clean up database
+   */
   FileIO { id: testFile }
 
-  /** The database file. */
+  /**
+   * The database file
+   */
   FileIO { id: dbFile; source: dbPath; }
 
+  /**
+   * The tags for a selected score
+   */
   ListModel { id: tagListModel; dynamicRoles: true }
 
-  /** The filtered scores shown in the grid. */
+  /**
+   * The filtered scores shown in the grid
+   */
   ListModel { id: scoreListModel }
 
-  /** The list of available files. */
+  /**
+   * The list of available files
+   */
   FolderListModel {
     id: folderListModel
     nameFilters: ["*.mscz"]
-
     onFolderChanged: addFilesToDatabase(folderListModel)
   }
 
-  /** Dialog to select the score directory. */
+  /**
+   * Dialog to select the score directory
+   */
   FileDialog {
     id: libraryDialog
-    title: qsTr("Select a folder to import")
+    title: "Select a folder to import"
     folder: shortcuts.documents
     selectFolder: true
 
@@ -235,16 +347,20 @@ MuseScore {
     }
   }
 
-  /** A score. */
+  /**
+   * Represents a score. Available fields:
+   * - uid
+   * - file
+   * - title
+   * - [any user-defined tags]
+   */
   Component {
     id: scoreComponent
 
-    /** The score item. */
     Item {
       width: libraryListView.width
       height: 100
 
-      /** The visible part of the score item. */
       Rectangle {
         anchors.fill: parent
         anchors.margins: 1
@@ -306,7 +422,9 @@ MuseScore {
           text: title ? title : ""
         }
 
-        /** Shown when trying to open a file that no longer exists. */
+        /**
+         * Shown when trying to open a file that no longer exists
+         */
         Popup {
           id: fileNotExistPopup
           width: fileNotExistText.width + 58
@@ -334,7 +452,9 @@ MuseScore {
           }
         }
 
-        /** Shown when clicking the "delete" trash can on a score. */
+        /**
+         * Shown when clicking the "delete" trash can on a score
+         */
         Popup {
           id: confirmDeletePopup
           width: 350
@@ -385,7 +505,12 @@ MuseScore {
     }
   }
 
-  /** An editable tag. */
+  /**
+   * Represents an editable tag. Available fields:
+   * - uid
+   * - prefix
+   * - tag
+   */
   Component {
     id: tagComponent
 
@@ -399,43 +524,40 @@ MuseScore {
         height: childrenRect.height
         color: "transparent"
 
-        TextInput {
+        Text {
           id: prefixText
           anchors.left: parent.left
           anchors.leftMargin: 8
-          selectByMouse: true
-          text: prefix
-
-          onEditingFinished: {
-            // TODO
-          }
-        }
-
-        Text {
-          id: colon
-          anchors.left: prefixText.right
-          text: " : "
+          color: "gray"
+          text: prefix + " : "
         }
 
         TextInput {
           id: tagText
-          anchors.left: colon.right
+          anchors.left: prefixText.right
           selectByMouse: true
           text: tag
 
           onEditingFinished: {
-            // TODO
+            if (tag !== text) {
+              updateTagByPrefix(uid, prefix, tag, text);
+              tag = text;
+            }
           }
         }
       }
     }
   }
 
-  /** The main window. */
+  /**
+   * The main window
+   */
   Rectangle {
     anchors.fill: parent
 
-    /** The search label. */
+    /**
+     * The search label
+     */
     Label {
       id: tagLabel
       anchors.top: parent.top
@@ -446,7 +568,9 @@ MuseScore {
       text: "Search: "
     }
 
-    /** The search field. */
+    /**
+     * The search field
+     */
     TextField {
       id: tagInput
       anchors.top: parent.top
@@ -462,7 +586,9 @@ MuseScore {
       }
     }
 
-    /** Scroll view to allow list view to have many scores. */
+    /**
+     * Scroll view to allow list view to have many scores
+     */
     ScrollView {
       id: libraryScrollView
       anchors.top: tagInput.bottom
@@ -474,7 +600,9 @@ MuseScore {
       ScrollBar.horizontal.policy: ScrollBar.AsNeeded
       ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-      /** The list view displaying the filtered list of scores. */
+      /**
+       * The list view displaying the filtered list of scores
+       */
       ListView {
         id: libraryListView
         width: parent.width
@@ -485,6 +613,9 @@ MuseScore {
       }
     }
 
+    /**
+     * The tag editing pane
+     */
     Rectangle {
       id: tagEditView
       anchors.bottom: libraryCount.top
@@ -495,6 +626,9 @@ MuseScore {
       color: "white"
       visible: false
 
+      /**
+       * The shaded region for the pane's title
+       */
       Rectangle {
         id: tagEditTitle
         anchors.top: parent.top
@@ -503,12 +637,15 @@ MuseScore {
         height: childrenRect.height
         color: "gray"
 
-        Text {
-          font.pixelSize: 24;
-          text: "Tag Editor"
-        }
+        /**
+         * The pane's title
+         */
+        Text { font.pixelSize: 24; text: "Tag Editor" }
       }
 
+      /**
+       * Scroll view to allow list to have many tags
+       */
       ScrollView {
         id: tagListScrollView
         anchors.top: tagEditTitle.bottom
@@ -521,6 +658,9 @@ MuseScore {
         ScrollBar.horizontal.policy: ScrollBar.AsNeeded
         ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
+        /**
+         * The list view displaying the tags for a given score
+         */
         ListView {
           id: tagListView
           width: parent.width
@@ -532,7 +672,9 @@ MuseScore {
       }
     }
 
-    /** The number of scores loaded. */
+    /**
+     * The number of scores loaded
+     */
     Text {
       id: libraryCount
       anchors.bottom: parent.bottom
@@ -544,7 +686,9 @@ MuseScore {
       verticalAlignment: Text.AlignBottom
     }
 
-    /** Button that opens the file dialog to find a new library path. */
+    /**
+     * Button that opens the file dialog to find a new library path
+     */
     Button {
       id: bOpenLibrary
       anchors.bottom: parent.bottom
